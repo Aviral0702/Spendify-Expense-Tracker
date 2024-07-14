@@ -7,6 +7,7 @@ const userSchema = new Schema(
         name: {
             type: String,
             required: true,
+            unique: true,
             trim: true, 
             index: true
         },
@@ -19,24 +20,22 @@ const userSchema = new Schema(
         },
         password: {
             type: String,
-            required: [true, "Password is required"],
-            minlength : [6, "Password Must Be Atleast 6 characters"],
+            required: [true, 'Password is required']
         },
         isAvatarImageSet: {
             type: Boolean,
             default: false,
         },
         avatarImage: {
-            type: String, // cloudinary url
-            default: "",
+            type: String,
+            default: ""
         },
-        createdAt:{
-            type:Date,
-            default: Date.now,
+        transactions: {
+            type: [],
         },
         refreshToken: {
             type: String
-        }
+        }        
 
     },
     {
@@ -60,7 +59,8 @@ userSchema.methods.generateAccessToken = function(){
         {
             _id: this._id,
             email: this.email,
-            name: this.name,
+            username: this.username,
+            fullName: this.fullName
         },
         process.env.ACCESS_TOKEN_SECRET,
         {
@@ -80,5 +80,6 @@ userSchema.methods.generateRefreshToken = function(){
         }
     )
 }
+const User = mongoose.model("User", userSchema)
 
-export const User = mongoose.model("User", userSchema)
+export default User;

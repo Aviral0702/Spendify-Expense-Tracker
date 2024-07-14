@@ -1,7 +1,11 @@
-import User from "../models/UserSchema.js";
-import { ApiError } from "../utils/ApiError.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import {ApiError} from "../utils/ApiError.js"
+import User from "../models/user.model.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-import { asyncHandler } from "../utils/AsyncHandler.js";
+import jwt from "jsonwebtoken"
+import mongoose from "mongoose";
+
+
 const generateAccessAndRefereshTokens = async(userId) =>{
     try {
         const user = await User.findById(userId)
@@ -40,15 +44,12 @@ const registerUser = asyncHandler( async (req, res) => {
         throw new ApiError(400, "All fields are required")
     }
 
-    const existedUser = await User.findOne({
-        $or: [{ email }]
-    })
+    const existedUser = await User.findOne({ email })
 
     if (existedUser) {
         throw new ApiError(409, "User with email or username already exists")
     }
-    
-   
+
 
     const user = await User.create({
         name,
@@ -70,7 +71,7 @@ const registerUser = asyncHandler( async (req, res) => {
 
 } )
 
-export const loginUser = asyncHandler(async (req, res) =>{
+const loginUser = asyncHandler(async (req, res) =>{
     // req body -> data
     // username or email
     //find the user
@@ -78,10 +79,10 @@ export const loginUser = asyncHandler(async (req, res) =>{
     //access and referesh token
     //send cookie
 
-    const {email, name, password} = req.body
+    const {email,password} = req.body
     console.log(email);
 
-    if (!email) {
+    if ( !email ) {
         throw new ApiError(400, "username or email is required")
     }
     
@@ -91,9 +92,7 @@ export const loginUser = asyncHandler(async (req, res) =>{
         
     // }
 
-    const user = await User.findOne({
-        email
-    })
+    const user = await User.findOne({email})
 
     if (!user) {
         throw new ApiError(404, "User does not exist")
@@ -130,7 +129,7 @@ export const loginUser = asyncHandler(async (req, res) =>{
 
 })
 
-export const logoutUser = asyncHandler(async(req, res) => {
+const logoutUser = asyncHandler(async(req, res) => {
     await User.findByIdAndUpdate(
         req.user._id,
         {
@@ -154,3 +153,128 @@ export const logoutUser = asyncHandler(async(req, res) => {
     .clearCookie("refreshToken", options)
     .json(new ApiResponse(200, {}, "User logged Out"))
 })
+
+const refreshAccessToken = asyncHandler(async (req,res) =>{
+    const incomingRequestToken = req.cookies.refreshToken || req.body.refreshToken
+    if(!incomingRequestToken){
+        throw new ApiError(401, "Unauthorized request");
+
+    }   
+    try {
+        const decodedToken = jwt.verify(incomingRequestToken,process.env.REFRESH_TOKEN_SECRET) 
+    
+        const user = await User.findById(decodedToken?._id)
+        if(!user){
+            throw new ApiError(404, "Invalid refresh token")
+        }
+        
+        if(incomingRequestToken !== user?.refreshToken){
+            throw new ApiError(401, "Refresh token is invalid or either used")
+        }
+    
+        const options={
+            httpOnly: true,
+            secure: true
+        
+        }
+        const {accessToken,newRefreshToken} = await generateAccessAndRefereshTokens(user._id);
+    
+    
+        return res
+        .status(200)
+        .cookie("accessToken",accessToken,options)
+        .cookie("refreshToken",newRefreshToken,options)
+        .json(
+            new ApiResponse(
+                200,
+                {
+                    accessToken,refreshToken :newRefreshToken
+                },
+                "Access Token refreshed successfully"
+            )
+        )
+    } catch (error) {
+        throw new ApiError(401,"Invalid refresh token")
+    }
+
+})
+
+const changeCurrentPassword = asyncHandler(async(req,res)=>{
+    const {oldPasswpord,newPassword} = req.body
+    
+    //as password is getting changed then the user must be logged in
+    // we can extract the user from the session as we saved in the user model
+    const user = User.findById(req.user?.id)
+    if(!user){
+        throw new ApiError(404,"User not found")
+    }
+    const validPass = user.isPasswordCorrect(oldPasswpord);
+    if(!validPass){
+        throw new ApiError(401,"Invalid password")
+    }
+    user.password = newPassword;
+
+    user.save({validateBeforeSave:false});
+    return res
+    .status(200)
+    .json(
+        new ApiResponse(
+            200,
+            {},
+            "Password changed successfully"
+        )
+    )
+})
+
+const getCurrentUser = asyncHandler(async(req,res)=>{
+    const user = req.user
+    return res
+    .status(200)
+    .json(
+        new ApiResponse(
+            200,
+            user,
+            "User details fetched successfully"
+        )
+    
+    )
+})
+
+const updateAccountDetails = asyncHandler(async(req,res) =>{
+    const {email} = req.body
+    const user = await User.findByIdAndUpdate(req.user?._id,
+        {
+            $set :{
+                email : email
+            }
+        },
+        {
+            new:true,
+        }
+        ).select("-password")
+    
+    return res
+    .status(200)
+    .json(
+        new ApiResponse(
+            200,
+            user,
+            "Account details updated successfully"
+        )
+    
+    )    
+})
+
+
+
+
+
+export {
+    registerUser,
+    loginUser,
+    logoutUser,
+    refreshAccessToken,
+    changeCurrentPassword,
+    getCurrentUser,
+    updateAccountDetails,
+}
